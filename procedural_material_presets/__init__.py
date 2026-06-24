@@ -137,20 +137,52 @@ def _build_weathered(mat, p, ox=0, oy=0):
     co = _n(nd,'ShaderNodeTexCoord',ox,oy)
     mp = _n(nd,'ShaderNodeMapping',ox+200,oy)
     mp.inputs['Scale'].default_value = (p.weathered_scale,)*3
+    # Base dirt noise
     ns = _n(nd,'ShaderNodeTexNoise',ox+400,oy)
     ns.inputs['Scale'].default_value = p.weathered_scale
-    ns.inputs['Detail'].default_value = 6.0
+    ns.inputs['Detail'].default_value = 8.0
     rp = nd.new('ShaderNodeValToRGB'); rp.location=(ox+600,oy)
     rp.color_ramp.elements[0].position = max(0.0, 1.0-p.weathered_dirt)
     rp.color_ramp.elements[0].color = (0.22,0.15,0.08,1)
     rp.color_ramp.elements[1].color = (0.6,0.55,0.45,1)
-    bs = _n(nd,'ShaderNodeBsdfPrincipled',ox+800,oy)
-    bs.label = '_preset_'
-    bs.inputs['Roughness'].default_value = 0.85
     lk.new(co.outputs['Object'], mp.inputs['Vector'])
     lk.new(mp.outputs['Vector'], ns.inputs['Vector'])
     lk.new(ns.outputs['Fac'],    rp.inputs['Fac'])
-    lk.new(rp.outputs['Color'],  bs.inputs['Base Color'])
+    color_out = rp.outputs['Color']
+    x_bs = ox+800
+    # Oil paint peel: Voronoi patches reveal darker exposed layer
+    if p.weathered_peel > 0.01:
+        vp = _n(nd,'ShaderNodeTexVoronoi',ox+400,oy-280)
+        vp.inputs['Scale'].default_value = p.weathered_scale * 0.35
+        rp_peel = nd.new('ShaderNodeValToRGB'); rp_peel.location=(ox+600,oy-280)
+        rp_peel.color_ramp.interpolation = 'CONSTANT'
+        rp_peel.color_ramp.elements[0].position = max(0.0, 1.0-p.weathered_peel)
+        rp_peel.color_ramp.elements[0].color = (0,0,0,1)
+        rp_peel.color_ramp.elements[1].color = (1,1,1,1)
+        mc = _cmix(nd,'MIX',ox+800,oy-140)
+        mc.inputs[7].default_value = (0.20, 0.16, 0.12, 1.0)  # exposed layer
+        lk.new(mp.outputs['Vector'],        vp.inputs['Vector'])
+        lk.new(vp.outputs['Distance'],      rp_peel.inputs['Fac'])
+        lk.new(rp.outputs['Color'],         mc.inputs[6])
+        lk.new(rp_peel.outputs['Color'],    mc.inputs[0])
+        color_out = mc.outputs[2]
+        x_bs = ox+1050
+    bs = _n(nd,'ShaderNodeBsdfPrincipled',x_bs,oy)
+    bs.label = '_preset_'
+    bs.inputs['Roughness'].default_value = 0.85
+    lk.new(color_out, bs.inputs['Base Color'])
+    # Surface cracks: Wave rings → Normal only (does not affect color)
+    if p.weathered_crack > 0.01:
+        wc = _n(nd,'ShaderNodeTexWave',ox+400,oy-520)
+        wc.wave_type = 'RINGS'
+        wc.inputs['Scale'].default_value      = p.weathered_scale * 6.0
+        wc.inputs['Distortion'].default_value = 10.0
+        wc.inputs['Detail'].default_value     = 4.0
+        bpc = nd.new('ShaderNodeBump'); bpc.location=(ox+650,oy-520)
+        bpc.inputs['Strength'].default_value = p.weathered_crack * 0.7
+        lk.new(mp.outputs['Vector'],    wc.inputs['Vector'])
+        lk.new(wc.outputs['Color'],     bpc.inputs['Height'])
+        lk.new(bpc.outputs['Normal'],   bs.inputs['Normal'])
     return bs, 'BSDF'
 
 def _build_scratches(mat, p, ox=0, oy=0):
@@ -194,40 +226,95 @@ def _build_scratches(mat, p, ox=0, oy=0):
 
 def _build_stains(mat, p, ox=0, oy=0):
     nd, lk = mat.node_tree.nodes, mat.node_tree.links
-    co = _n(nd,'ShaderNodeTexCoord',ox,oy)
+    co  = _n(nd,'ShaderNodeTexCoord',ox,oy)
+    mp  = _n(nd,'ShaderNodeMapping', ox+200,oy)
+    mp.inputs['Scale'].default_value = (p.stain_scale,)*3
+    lk.new(co.outputs['Object'], mp.inputs['Vector'])
+
+    stype = p.stain_type if not p.stain_mask else 'MASK'
+
     if p.stain_mask:
-        img = _n(nd,'ShaderNodeTexImage',ox+200,oy)
+        img = _n(nd,'ShaderNodeTexImage',ox+200,oy-200)
         img.image = p.stain_mask
         lk.new(co.outputs['UV'], img.inputs['Vector'])
         if p.mask_feather > 0.01:
-            fr = nd.new('ShaderNodeValToRGB'); fr.location = (ox+400, oy)
+            fr = nd.new('ShaderNodeValToRGB'); fr.location=(ox+400,oy-200)
             fr.color_ramp.elements[0].position = p.mask_feather * 0.4
-            fr.color_ramp.elements[1].position = max(0.5, 1.0 - p.mask_feather * 0.4)
+            fr.color_ramp.elements[1].position = max(0.5, 1.0-p.mask_feather*0.4)
             lk.new(img.outputs['Color'], fr.inputs['Fac'])
             mask_out = fr.outputs['Color']
         else:
             mask_out = img.outputs['Color']
-        x_ramp = ox+650
-    else:
-        mp = _n(nd,'ShaderNodeMapping',ox+200,oy)
-        mp.inputs['Scale'].default_value = (p.stain_scale,)*3
+
+    elif stype == 'WATER':
+        # Voronoi distance → sharp tide-mark ring
+        vr = _n(nd,'ShaderNodeTexVoronoi',ox+400,oy)
+        vr.feature = 'F1'
+        vr.inputs['Scale'].default_value = p.stain_scale
+        rp_ring = nd.new('ShaderNodeValToRGB'); rp_ring.location=(ox+600,oy)
+        rp_ring.color_ramp.interpolation = 'EASE'
+        lo = max(0.0, 0.45 - p.stain_amount*0.35)
+        rp_ring.color_ramp.elements[0].position = lo
+        rp_ring.color_ramp.elements[0].color = (1,1,1,1)
+        rp_ring.color_ramp.elements[1].position = min(0.95, lo+0.15)
+        rp_ring.color_ramp.elements[1].color = (0,0,0,1)
+        lk.new(mp.outputs['Vector'],     vr.inputs['Vector'])
+        lk.new(vr.outputs['Distance'],   rp_ring.inputs['Fac'])
+        mask_out = rp_ring.outputs['Color']
+
+    elif stype == 'OIL':
+        # Soft noise blob — irregular oil patch
         ns = _n(nd,'ShaderNodeTexNoise',ox+400,oy)
-        ns.inputs['Scale'].default_value  = p.stain_scale
-        ns.inputs['Detail'].default_value = 4.0
-        lk.new(co.outputs['Object'], mp.inputs['Vector'])
+        ns.inputs['Scale'].default_value    = p.stain_scale
+        ns.inputs['Detail'].default_value   = 6.0
+        ns.inputs['Roughness'].default_value= 0.5
+        rp_oil = nd.new('ShaderNodeValToRGB'); rp_oil.location=(ox+600,oy)
+        rp_oil.color_ramp.elements[0].position = max(0.0, 1.0-p.stain_amount)
+        rp_oil.color_ramp.elements[0].color = (0,0,0,1)
+        rp_oil.color_ramp.elements[1].color = (1,1,1,1)
         lk.new(mp.outputs['Vector'], ns.inputs['Vector'])
-        mask_out = ns.outputs['Fac']
-        x_ramp = ox+600
-    rp = nd.new('ShaderNodeValToRGB'); rp.location=(x_ramp,oy)
-    rp.color_ramp.elements[0].position = max(0.0, 1.0-p.stain_amount)
-    rp.color_ramp.elements[0].color = (0.35,0.20,0.05,1)
-    rp.color_ramp.elements[1].color = (0.7,0.6,0.45,1)
-    bs = _n(nd,'ShaderNodeBsdfPrincipled',x_ramp+200,oy)
-    bs.label = '_preset_'
-    bs.inputs['Roughness'].default_value = 0.75
-    lk.new(mask_out,            rp.inputs['Fac'])
-    lk.new(rp.outputs['Color'], bs.inputs['Base Color'])
-    return bs, 'BSDF'
+        lk.new(ns.outputs['Fac'],    rp_oil.inputs['Fac'])
+        mask_out = rp_oil.outputs['Color']
+
+    else:  # RUST streak — Wave bands on Y axis
+        wv = _n(nd,'ShaderNodeTexWave',ox+400,oy)
+        wv.wave_type       = 'BANDS'
+        wv.bands_direction = 'Y'
+        wv.inputs['Scale'].default_value       = p.stain_scale * 0.5
+        wv.inputs['Distortion'].default_value  = 8.0
+        wv.inputs['Detail'].default_value      = 10.0
+        wv.inputs['Detail Scale'].default_value= 3.0
+        rp_rust = nd.new('ShaderNodeValToRGB'); rp_rust.location=(ox+600,oy)
+        rp_rust.color_ramp.elements[0].position = max(0.0, 1.0-p.stain_amount)
+        rp_rust.color_ramp.elements[0].color = (0,0,0,1)
+        rp_rust.color_ramp.elements[1].color = (1,1,1,1)
+        lk.new(mp.outputs['Vector'], wv.inputs['Vector'])
+        lk.new(wv.outputs['Color'],  rp_rust.inputs['Fac'])
+        mask_out = rp_rust.outputs['Color']
+
+    # BSDF per type
+    x_bs = ox+850
+    bs_clean  = _n(nd,'ShaderNodeBsdfPrincipled',x_bs,oy-300)
+    bs_clean.inputs['Roughness'].default_value = 0.5
+    bs_stain  = _n(nd,'ShaderNodeBsdfPrincipled',x_bs,oy)
+    bs_stain.label = '_preset_'
+    if stype == 'OIL' or (p.stain_mask and True):
+        bs_stain.inputs['Base Color'].default_value = (0.04,0.03,0.02,1.0)
+        bs_stain.inputs['Roughness'].default_value  = 0.08
+        bs_stain.inputs['IOR'].default_value        = 1.47
+    elif stype == 'RUST':
+        bs_stain.inputs['Base Color'].default_value = (0.42,0.14,0.02,1.0)
+        bs_stain.inputs['Roughness'].default_value  = 0.9
+        bs_stain.inputs['Metallic'].default_value   = 0.0
+    else:  # WATER
+        bs_stain.inputs['Base Color'].default_value = (0.28,0.20,0.14,1.0)
+        bs_stain.inputs['Roughness'].default_value  = 0.75
+
+    mix = _n(nd,'ShaderNodeMixShader',x_bs+250,oy-150)
+    lk.new(mask_out,               mix.inputs['Fac'])
+    lk.new(bs_clean.outputs['BSDF'],mix.inputs[1])
+    lk.new(bs_stain.outputs['BSDF'],mix.inputs[2])
+    return mix, 'Shader'
 
 # displacement helper
 def _add_displacement(mat, nd, lk, out, p, preset_id):
@@ -295,9 +382,9 @@ def _layer(mat, p, inner_fn, fac):
 
 PRESETS = [
     ('DUST',      '灰尘', build_dust,      ['dust_amount','dust_scale'],                          _build_dust),
-    ('WEATHERED', '做旧', build_weathered, ['weathered_dirt','weathered_scale'],                  _build_weathered),
+    ('WEATHERED', '做旧', build_weathered, ['weathered_dirt','weathered_scale','weathered_peel','weathered_crack'],                  _build_weathered),
     ('SCRATCHES', '划痕', build_scratches, ['scratch_density','scratch_depth','scratch_bright'],  _build_scratches),
-    ('STAINS',    '污渍', build_stains,    ['stain_amount','stain_scale'],                        _build_stains),
+    ('STAINS',    '污渍', build_stains,    ['stain_type','stain_amount','stain_scale'],                        _build_stains),
 ]
 # properties
 _CFG_ATTRS = ['dust_amount','dust_scale','weathered_dirt','weathered_scale',
@@ -325,6 +412,13 @@ class MaterialPresetProps(bpy.types.PropertyGroup):
     dust_scale:      FloatProperty(name='灰尘大小',     min=0.1, max=50.0, default=5.0)
     weathered_dirt:  FloatProperty(name='污垢强度',     min=0.0, max=1.0,  default=0.5,  subtype='FACTOR')
     weathered_scale: FloatProperty(name='特征尺寸',     min=0.1, max=50.0, default=5.0)
+    weathered_peel:  FloatProperty(name='油漆剥落',     min=0.0, max=1.0,  default=0.0,  subtype='FACTOR')
+    weathered_crack: FloatProperty(name='表面裂纹',     min=0.0, max=1.0,  default=0.0,  subtype='FACTOR')
+    stain_type:      bpy.props.EnumProperty(name='污渍类型',
+                         items=[('WATER','水渍','干涸水渍/矿物质环'),
+                                ('OIL',  '油污','半透明油污光泽'),
+                                ('RUST', '锈迹流痕','从高处往下流的锈迹')],
+                         default='WATER')
     scratch_density: FloatProperty(name='划痕密度',     min=0.0, max=1.0,  default=0.5,  subtype='FACTOR')
     scratch_depth:   FloatProperty(name='划痕深度',     min=0.0, max=1.0,  default=0.5,  subtype='FACTOR')
     scratch_bright:  FloatProperty(name='金属亮度',     min=0.0, max=1.0,  default=0.8,  subtype='FACTOR')
