@@ -886,9 +886,9 @@ classes = (
 )
 
 def register():
-    bpy.utils.register_class(_wet_panel)
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.utils.register_class(_wet_panel)
     bpy.types.Scene.mat_presets            = PointerProperty(type=MaterialPresetProps)
     bpy.types.Scene.mat_preset_configs     = CollectionProperty(type=MaterialPresetConfig)
     bpy.types.Scene.mat_preset_config_index= IntProperty(default=0)
