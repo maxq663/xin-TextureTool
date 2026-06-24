@@ -1,0 +1,9 @@
+schema_version = "1.0.0"
+id = "procedural_material_presets"
+version = "1.2.0"
+name = "程序化材质预设"
+tagline = "一键应用程序化材质预设：灰尘、做旧、划痕、污渍"
+maintainer = "User"
+type = "add-on"
+blender_version_min = "5.0.0"
+license = ["SPDX:GPL-2.0-or-later"]
