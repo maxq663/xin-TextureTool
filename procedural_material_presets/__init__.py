@@ -511,6 +511,7 @@ class MATERIAL_PT_presets(bpy.types.Panel):
             layout.label(text=mat.name if mat else '无材质', icon='MATERIAL' if mat else 'INFO')
         else:
             layout.label(text='请选择网格物体', icon='ERROR')
+        layout.operator('material.xin_about', text='了解我们', icon='URL')
 
 def _make_sub(pid, label, props):
     # mask prop name for presets that support it
@@ -584,6 +585,13 @@ class MATERIAL_PT_configs(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator('material.load_config',   text='加载')
         row.operator('material.delete_config', text='删除', icon='TRASH')
+
+# About operator
+class MATERIAL_OT_about(bpy.types.Operator):
+    bl_idname = 'material.xin_about'; bl_label = '了解我们'
+    def execute(self, context):
+        import webbrowser; webbrowser.open('https://www.xinlab.cc')
+        return {'FINISHED'}
 
 # PBR channel modification helpers
 def _find_bsdf(mat):
@@ -867,6 +875,7 @@ class MATERIAL_OT_clear_blend_mask(bpy.types.Operator):
 
 # register
 classes = (
+    MATERIAL_OT_about,
     MaterialPresetConfig, MaterialPresetProps,
     MATERIAL_OT_apply_preset, MATERIAL_OT_layer_preset,
     MATERIAL_OT_copy_to_selected, MATERIAL_OT_pack_as_group,
