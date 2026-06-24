@@ -500,7 +500,7 @@ class MATERIAL_OT_clear_mask(bpy.types.Operator):
         return {'FINISHED'}
 # panels
 class MATERIAL_PT_presets(bpy.types.Panel):
-    bl_label = '程序化材质预设'; bl_idname = 'MATERIAL_PT_presets'
+    bl_label = 'xin-TextureTool'; bl_idname = 'MATERIAL_PT_presets'
     bl_space_type = 'VIEW_3D'; bl_region_type = 'UI'; bl_category = '材质预设'
 
     def draw(self, context):
