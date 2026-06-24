@@ -117,11 +117,12 @@ def _build_dust(mat, p, ox=0, oy=0):
         mul.operation = 'MULTIPLY'
         lk.new(ns.outputs['Fac'], mul.inputs[0])
         lk.new(grav,              mul.inputs[1])
-        mfac = nd.new('ShaderNodeMath'); mfac.location = (ox+700, oy-150)
-        mfac.operation = 'MIX'; mfac.inputs[0].default_value = p.gravity_amount
-        lk.new(ns.outputs['Fac'], mfac.inputs[1])
-        lk.new(mul.outputs['Value'], mfac.inputs[2])
-        fac_out = mfac.outputs['Value']
+        mfac = nd.new('ShaderNodeMix'); mfac.location = (ox+700, oy-150)
+        mfac.data_type = 'FLOAT'
+        mfac.inputs[0].default_value = p.gravity_amount
+        lk.new(ns.outputs['Fac'],    mfac.inputs[2])   # A = no gravity
+        lk.new(mul.outputs['Value'], mfac.inputs[3])   # B = gravity weighted
+        fac_out = mfac.outputs[1]
     else:
         fac_out = ns.outputs['Fac']
     lk.new(fac_out, rp.inputs['Fac'])
@@ -297,7 +298,6 @@ PRESETS = [
     ('WEATHERED', '做旧', build_weathered, ['weathered_dirt','weathered_scale'],                  _build_weathered),
     ('SCRATCHES', '划痕', build_scratches, ['scratch_density','scratch_depth','scratch_bright'],  _build_scratches),
     ('STAINS',    '污渍', build_stains,    ['stain_amount','stain_scale'],                        _build_stains),
-    ('WET',       '湿润', build_wet,       ['wet_amount','wet_scale'],                             _build_wet),
 ]
 # properties
 _CFG_ATTRS = ['dust_amount','dust_scale','weathered_dirt','weathered_scale',
@@ -886,6 +886,7 @@ classes = (
 )
 
 def register():
+    bpy.utils.register_class(_wet_panel)
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.mat_presets            = PointerProperty(type=MaterialPresetProps)
@@ -898,6 +899,7 @@ def unregister():
         delattr(bpy.types.Scene, attr)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    bpy.utils.unregister_class(_wet_panel)
 
 if __name__ == '__main__':
     register()
@@ -938,6 +940,9 @@ def _build_wet(mat, p, ox=0, oy=0):
     return mix, 'Shader'
 
 def build_wet(mat, p): _wrap(mat, p, _build_wet, 'WET')
+
+PRESETS.append(('WET', '湿润', build_wet, ['wet_amount','wet_scale'], _build_wet))
+_wet_panel = _make_sub('WET', '湿润', ['wet_amount','wet_scale'])
 
 
 # ── 重力方向辅助 ──────────────────────────────────────────────────────────────
